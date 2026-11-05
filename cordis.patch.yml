@@ -1,0 +1,23 @@
+# dsh-access-gateway bundle patch.
+#
+# Installed through the official CLI —
+#
+#   dsh plugin --profile web add <path-or-package>
+#
+# — the command reconciles dsh.profile.bundles against installed packages and,
+# seeing this declaration, mounts the row below. The manual equivalent in the
+# profile's cordis.patch.yml is the same insert list.
+#
+# The row carries the whole configuration: the address to serve, the port, the
+# gateway password, and how long a passed login lasts. Leaving `bind` empty
+# serves the first non-loopback address the machine reports; leaving `password`
+# empty leaves the entry open, and the Settings page sets the password from
+# there.
+- insert:
+    - id: access-gateway
+      name: 'dsh-access-gateway'
+      config:
+        bind: ''
+        port: 3081
+        password: ''
+        sessionDays: 30

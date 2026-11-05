@@ -1,0 +1,70 @@
+{
+  "name": "dsh-access-gateway",
+  "version": "0.1.0",
+  "description": "Access the DSH Web GUI from your LAN: a password-gated TCP listener that forwards the browser to the loopback GUI with this process's launch token.",
+  "icon": "./icon.svg",
+  "type": "module",
+  "license": "MIT",
+  "author": "miiy",
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/miiy/dsh-access-gateway.git"
+  },
+  "homepage": "https://github.com/miiy/dsh-access-gateway#readme",
+  "bugs": {
+    "url": "https://github.com/miiy/dsh-access-gateway/issues"
+  },
+  "main": "index.js",
+  "exports": {
+    ".": "./index.js",
+    "./client": "./client.js",
+    "./package.json": "./package.json"
+  },
+  "files": [
+    "icon.svg",
+    "screenshot.png",
+    "screenshot-wide.png",
+    "index.js",
+    "client.js",
+    "cordis.patch.yml",
+    "README.md",
+    "README.zh-CN.md",
+    "CHANGELOG.md",
+    "LICENSE"
+  ],
+  "engines": {
+    "node": ">=20",
+    "dsh": ">=0.2.1-rc.1 <0.3.0-0"
+  },
+  "dependencies": {
+    "@deepseek-ai/schemastery": "~3.18.5"
+  },
+  "peerDependencies": {
+    "@deepseek-ai/cordis": "~4.0.5"
+  },
+  "keywords": [
+    "dsh",
+    "deepseek-harness",
+    "cordis",
+    "plugin",
+    "bundle",
+    "access",
+    "remote",
+    "gateway"
+  ],
+  "scripts": {
+    "test": "node --test"
+  },
+  "dsh": {
+    "bundle": {
+      "patch": "./cordis.patch.yml"
+    },
+    "client": {
+      "platform": "web",
+      "inject": [
+        "@deepseek-ai/dsh-client-ui-settings",
+        "@deepseek-ai/dsh-client-locale"
+      ]
+    }
+  }
+}
