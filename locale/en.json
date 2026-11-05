@@ -1,0 +1,6 @@
+{
+  "meta": {
+    "title": "Access Gateway",
+    "description": "Reach the Web GUI from your LAN or VPN behind one password: a listener that forwards an authenticated browser to the loopback GUI with this process's launch token."
+  }
+}

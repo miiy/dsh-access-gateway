@@ -14,6 +14,7 @@ Versions follow [SemVer](https://semver.org/).
 - Settings section in the Web GUI, built from the same primitives the built-in sections use: live listener state, address, port, session lifetime and write-only password in one form with a single Save button. A save reopens the listener on the spot, so no Host restart is needed.
 - The detected interface addresses are offered as buttons under the address field, next to an automatic choice.
 - Plugin listing assets: `icon.svg` named in `package.json`, a screenshot referenced from both READMEs, and `screenshots.json` for the market.
+- Localized market metadata: `locale/en.json` and `locale/zh.json` carry the listing title and description for the plugin market.
 - Settings route `/dsh-access-gateway/rpc`, fenced by the same admission `/api` uses, over one JSON envelope per endpoint (`get`, `save`); a save carries the optional new password with the settings.
 - Settings store `~/.dsh/dsh-access-gateway/settings.json` (0600) holding the runtime values, which win over the Plugin defaults.
 - `0.0.0.0` binds every interface, and each interface address is registered for the Host/Origin fence; the settings page lists every entry URL it answers on.
