@@ -23,6 +23,7 @@
   },
   "files": [
     "icon.svg",
+    "icon-180.png",
     "screenshot.png",
     "screenshot-wide.png",
     "index.js",
