@@ -1,6 +1,6 @@
 {
   "meta": {
     "title": "访问入口",
-    "description": "在局域网或 VPN 上用一个密码访问 Web GUI：通过验证后把浏览器转发到回环上的 GUI，并带上当前进程的启动 token。"
+    "description": "在局域网中访问 DSH Web GUI：用一个密码把关，通过后把浏览器转发到回环上的 GUI，并带上当前进程的启动 token。"
   }
 }
