@@ -28,3 +28,4 @@ Versions follow [SemVer](https://semver.org/).
 ### Fixed
 - The credential store is written only when it lacks its key or salt; loading a profile no longer rewrites `secret.json`.
 - The settings route resolves its answer before writing, so a failed save cannot leave a partial response behind.
+- The `@deepseek-ai/cordis` peer range is `^4.0.5`: `~4.0.5` stops below 4.1.0, which is what the current harness ships, so installs reported an unmet peer. `engines.dsh` stays a plain `>=0.2.1-rc.1 <0.3.0-0` — the Host evaluates it with `includePrerelease`, so that range already admits 0.2.2-rc.1 and needs no extra branch.
