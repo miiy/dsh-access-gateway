@@ -1,6 +1,6 @@
 {
   "meta": {
     "title": "Access Gateway",
-    "description": "Access the DSH Web GUI from your LAN behind one password: a listener that forwards an authenticated browser to the loopback GUI with this process's launch token."
+    "description": "Access the DSH Web GUI from your LAN: a listener forwards the browser to the loopback GUI with this process's launch token. The password is on by default, starting as a generated random one, and can be switched off on a network you trust."
   }
 }

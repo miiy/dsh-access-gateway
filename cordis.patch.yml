@@ -10,9 +10,10 @@
 #
 # The row carries the whole configuration: the address to serve, the port, the
 # gateway password, and how long a passed login lasts. Leaving `bind` empty
-# serves the first non-loopback address the machine reports; leaving `password`
-# empty leaves the entry open, and the Settings page sets the password from
-# there.
+# serves the first non-loopback address the machine reports. Leaving `password`
+# empty lets the Host generate one on the first run and show it in Settings; from
+# there the Settings page owns it, including switching it off for a network you
+# trust.
 - insert:
     - id: access-gateway
       name: 'dsh-access-gateway'

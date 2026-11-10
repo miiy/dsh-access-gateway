@@ -4,7 +4,9 @@
 
 **Access the DSH Web GUI from your LAN.** On the same Wi-Fi, a phone, a tablet or
 another computer opens `http://192.168.0.10:3081` and types the password once. Set
-the address to `0.0.0.0` and every interface answers — Wi-Fi, VPN, wired.
+the address to `0.0.0.0` and every interface answers — Wi-Fi, VPN, wired. A fresh
+entry never starts open: the Host generates a random password, and the password
+can be switched off for a network you trust.
 
 DSH listens on loopback only and does not accept a wildcard `--host`, so nothing
 outside this machine can reach it. This plugin adds that password-gated listener: a
@@ -31,7 +33,8 @@ phone → http://192.168.0.10:3081
 
 Only each connection's first request head is read. Once a connection proves it
 holds the gateway cookie, the rest is a byte pipe, so WebSocket upgrades and
-keep-alive work without being understood.
+keep-alive work without being understood. With the password switched off, the
+form is skipped: the first request is redirected with the token straight away.
 
 ## Install
 
@@ -91,24 +94,28 @@ appears under the button only to say the password was wrong. The page carries th
 Web GUI theme's tokens inlined — the same colours, radii, font stack and control
 sizes — so it follows the system light or dark scheme and looks like the
 application it opens. Copy follows `Accept-Language`: Chinese for a `zh` browser,
-English otherwise. With no password set the page never appears.
+English otherwise. With the password switched off the page never appears.
 
 ## Settings
 
 The Web GUI's Settings page carries an **Access** section: it shows whether the
 listener is up and on which URL, and edits the address, the port, the session
-lifetime and the gateway password in one form with one Save button. The
-interfaces the machine reports are offered as buttons under the address field,
-so the address is one tap away and never typed from memory. Saving reopens the
-listener on the spot, so no Host restart is needed.
+lifetime and the password in one form with one Save button. The interfaces the
+machine reports are offered as buttons under the address field, so the address is
+one tap away and never typed from memory. Saving reopens the listener on the
+spot, so no Host restart is needed.
 
-**Require a password** decides whether the entry asks for one at all. Turned off,
-every request from that network reaches the GUI: no form, no cookie, no token to
-type. That is convenient on a network you trust and wrong on one you do not.
+**Require a password** is on by default. On a fresh store the Host generates a
+random password, shows it in this section with a copy button and prints it to the
+Host log, so the entry is never open by accident. An empty password field keeps
+the current password; typing a new one replaces it. The Host stores a scrypt
+hash, never the password itself, so the generated value is shown only while the
+Host that made it is running.
 
-The password field is write-only: an empty field keeps the current password, and
-the page only learns whether one is set. The Host stores a scrypt hash, never the
-password itself.
+Turned off, every request from that network reaches the GUI: no form, no cookie,
+no token to type. The switch is saved with the rest of the settings, so restarting
+the Host does not put the password back. That is convenient on a network you
+trust and wrong on one you do not.
 
 ## Configuration
 
@@ -119,19 +126,23 @@ saves lives in `~/.dsh/dsh-access-gateway/settings.json` and wins over them.
 | --- | --- | --- |
 | `bind` | `''` | Address to listen on. Empty serves the first non-loopback IPv4 the machine reports; `0.0.0.0` serves every interface; a concrete address pins one, such as a VPN address. |
 | `port` | `3081` | Listening port. Keep it distinct from the GUI's. |
-| `password` | `''` | Gateway password, at least 4 characters. Empty leaves the entry open: anyone who can reach the address gets in. |
+| `password` | `''` | Gateway password, at least 4 characters. Empty generates a random one on the first run, which the Settings page then shows and owns. |
 | `sessionDays` | `30` | How long one passed login lasts. |
 
 The upstream address is read from the `webServer` service, so the GUI port never
-appears in this configuration.
+appears in this configuration. Whether the entry requires a password is stored in
+the settings file (`passwordEnabled`) rather than here, because only the Settings
+page changes it.
 
 ## Security
 
 - The listener serves plain HTTP. Use it on a trusted network or a VPN, or put
   TLS in front of it.
-- The password is all that stands between that network and the GUI. With none
-  set, every request from the network is admitted, so the Host logs a warning
-  and the Settings section shows the entry as open.
+- The password is all that stands between that network and the GUI. With the
+  switch off, every request from the network is admitted, so the Host logs a
+  warning and the Settings section shows the entry as open.
+- A generated password is printed to the Host log, so keep that log private, or
+  replace the password from Settings and the log line stops mattering.
 - The gateway runs inside the Host process and therefore can read the launch
   token; it holds no other credential and stores the password as a hash.
 - A rejected password waits 600 ms before answering, so guessing costs time.

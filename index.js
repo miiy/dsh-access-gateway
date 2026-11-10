@@ -6,8 +6,10 @@
  * request head is sniffed: a valid gateway cookie pipes the whole connection
  * untouched — so HTTP keep-alive and WebSocket upgrades keep working — while
  * anything else receives the login page, which redirects to the Web GUI with
- * this process's launch token once the password matches. With no password set
- * the gate is open: every request is handed the cookie and redirected at once.
+ * this process's launch token once the password matches. A first run generates
+ * a random password, so a fresh entry is never open by accident; the Settings
+ * page can switch the password off for a network it trusts, and that choice is
+ * stored with the rest of the settings, so a restart does not put it back.
  *
  * The address, port, password and session lifetime are edited from the Web
  * GUI's Settings through one POST route; the plugin configuration only supplies
@@ -17,7 +19,7 @@
  */
 
 import z from '@deepseek-ai/schemastery'
-import { createHmac, randomBytes, scryptSync, timingSafeEqual } from 'node:crypto'
+import { createHmac, randomBytes, randomInt, scryptSync, timingSafeEqual } from 'node:crypto'
 import { connect, createServer } from 'node:net'
 import { homedir, networkInterfaces } from 'node:os'
 import { chmodSync, mkdirSync, readFileSync, writeFileSync } from 'node:fs'
@@ -69,6 +71,38 @@ export const Config = z.object({
   password: z.string().default(''),
   sessionDays: z.natural().default(30),
 })
+
+// ---------------------------------------------------------------------------
+// Generated password
+// ---------------------------------------------------------------------------
+
+/**
+ * Characters a generated password draws from. `0/o` and `1/l/i` are left out:
+ * the password is typed on a phone keyboard, where those pairs read alike.
+ */
+const PASSWORD_ALPHABET = 'abcdefghjkmnpqrstuvwxyz23456789'
+
+/** A generated password is this many groups… */
+const PASSWORD_GROUPS = 4
+
+/** …of this many characters each, which is about 75 bits. */
+const PASSWORD_GROUP_SIZE = 4
+
+/**
+ * Make the password a fresh entry starts with. It has to be typeable on a
+ * phone, so it is short groups of unremarkable characters rather than base64.
+ */
+export function generatePassword() {
+  const groups = []
+  for (let group = 0; group < PASSWORD_GROUPS; group++) {
+    let text = ''
+    for (let index = 0; index < PASSWORD_GROUP_SIZE; index++) {
+      text += PASSWORD_ALPHABET[randomInt(PASSWORD_ALPHABET.length)]
+    }
+    groups.push(text)
+  }
+  return groups.join('-')
+}
 
 // ---------------------------------------------------------------------------
 // Address selection
@@ -209,7 +243,8 @@ function writeJson(path, value) {
 
 /**
  * Own the credential file: the session signing key plus the password hash.
- * No stored hash means the entry has no password and admits every request.
+ * The file holds only the hash; whether the entry asks for the password at all
+ * is a setting kept next to the address and the port.
  * @param {object} options - where the store lives.
  */
 export function createCredentials({ path = homePath('secret.json') } = {}) {
@@ -242,7 +277,7 @@ export function createCredentials({ path = homePath('secret.json') } = {}) {
   if (typeof stored.key !== 'string' || typeof stored.salt !== 'string') persist()
   const credentials = {
     key: state.key,
-    /** Whether a password exists; a store without one leaves the entry open. */
+    /** Whether a password exists. The switch decides whether it is asked for. */
     hasPassword: () => state.hash !== undefined,
     verify: (password) => state.hash !== undefined && sameHash(hashPassword(password, state.salt), state.hash),
     replace,
@@ -262,6 +297,9 @@ export function readSettings(defaults, path = homePath('settings.json')) {
     bind: typeof stored.bind === 'string' ? stored.bind : (defaults.bind ?? ''),
     port: Number.isInteger(stored.port) ? stored.port : (defaults.port ?? 3081),
     sessionDays: Number.isInteger(stored.sessionDays) ? stored.sessionDays : (defaults.sessionDays ?? 30),
+    // The switch is a setting of its own: a store without the key is a first
+    // run, which starts with the password on.
+    passwordEnabled: typeof stored.passwordEnabled === 'boolean' ? stored.passwordEnabled : (defaults.passwordEnabled ?? true),
   }
 }
 
@@ -270,6 +308,7 @@ export function normalizeSettings(payload, base) {
   const bind = String(payload.bind ?? base.bind).trim()
   const port = Number(payload.port ?? base.port)
   const sessionDays = Number(payload.sessionDays ?? base.sessionDays)
+  const passwordEnabled = payload.passwordEnabled ?? base.passwordEnabled
   if (bind !== '' && isIpv4(bind) !== true) {
     throw new Error('bind must be an IPv4 address (`0.0.0.0` for every interface), or empty to serve the first one found')
   }
@@ -279,7 +318,10 @@ export function normalizeSettings(payload, base) {
   if (Number.isInteger(sessionDays) !== true || sessionDays < 1 || sessionDays > 365) {
     throw new Error('sessionDays must be an integer between 1 and 365')
   }
-  return { bind, port, sessionDays }
+  if (typeof passwordEnabled !== 'boolean') {
+    throw new Error('passwordEnabled must be a boolean')
+  }
+  return { bind, port, sessionDays, passwordEnabled }
 }
 
 /** Persist the settings the page saved. */
@@ -611,12 +653,30 @@ export function createController({ ctx, defaults, paths = {}, log = console }) {
   const settingsFile = paths.settings ?? homePath('settings.json')
   const secretFile = paths.secret ?? homePath('secret.json')
   const credentials = createCredentials({ path: secretFile })
-  // A password in the Plugin configuration seeds the first run; afterwards the
-  // Settings page owns it, so a configured default never overwrites a real one.
-  if (defaults.password !== undefined && defaults.password !== '' && credentials.hasPassword() !== true) {
-    credentials.replace(defaults.password)
-  }
   let current = readSettings(defaults, settingsFile)
+  /**
+   * The password generated for this run, kept only to show it in Settings.
+   * Empty once the user types a password of their own; the store itself only
+   * ever holds the hash, so a restart cannot show it again.
+   */
+  let generatedPassword = ''
+
+  /**
+   * Make sure a switched-on entry has a password to check. A fresh store gets a
+   * random one — that is what keeps the entry from being open by default — and
+   * a password in the Plugin configuration seeds it instead.
+   */
+  const ensurePassword = () => {
+    if (current.passwordEnabled !== true || credentials.hasPassword() === true) return
+    if (defaults.password !== undefined && defaults.password !== '') {
+      credentials.replace(defaults.password)
+      return
+    }
+    generatedPassword = generatePassword()
+    credentials.replace(generatedPassword)
+    log.log(`dsh-access-gateway: generated access password ${generatedPassword} (shown in Settings > Access; replace it with your own)`)
+  }
+  ensurePassword()
   let gateway
   let bind = { host: '', wildcard: false, accepted: [] }
   let error
@@ -629,7 +689,7 @@ export function createController({ ctx, defaults, paths = {}, log = console }) {
     accepts: (value) => verifySession(credentials.key, value),
     issue: () => signSession(credentials.key, Date.now() + current.sessionDays * 86400000),
     token: () => launchToken(ctx),
-    open: () => credentials.hasPassword() !== true,
+    open: () => current.passwordEnabled !== true,
     // A getter, so a new lifetime applies to the next cookie without a restart.
     get maxAgeSeconds() { return current.sessionDays * 86400 },
     failureDelayMs: FAILURE_DELAY_MS,
@@ -648,6 +708,8 @@ export function createController({ ctx, defaults, paths = {}, log = console }) {
     return {
       settings: { ...current },
       passwordSet: credentials.hasPassword(),
+      // Only a password this process generated; a restart forgets the plaintext.
+      generatedPassword,
       effective: {
         host: bind.host,
         port: current.port,
@@ -720,8 +782,8 @@ export function createController({ ctx, defaults, paths = {}, log = console }) {
       error = undefined
       trustFence()
       log.log(`dsh-access-gateway: listening on ${entryUrls().join(' ')}`)
-      if (credentials.hasPassword() !== true) {
-        log.warn('dsh-access-gateway: no access password set; anyone who can reach the entry is admitted')
+      if (current.passwordEnabled !== true) {
+        log.warn('dsh-access-gateway: password switched off; anyone who can reach the entry is admitted')
       }
       resolve()
     })
@@ -747,14 +809,24 @@ export function createController({ ctx, defaults, paths = {}, log = console }) {
       // Only the listening socket needs reopening; every gate decision is a
       // closure over live state, so a new password applies to the next request.
       const moved = next.bind !== current.bind || next.port !== current.port
-      // `undefined` or `null` means the page asked to drop the password; `''`
-      // keeps the current one.
+      // `undefined` or `null` means the page asked to switch the password off;
+      // `''` keeps the current one. A switch-off is also what `null` used to
+      // mean before the switch was stored, so it stays valid on its own.
       const typed = password === undefined || password === null ? '' : String(password)
       if (typed !== '' && typed.length < 4) throw new Error('password must be at least 4 characters')
+      if (password === null) next.passwordEnabled = false
       writeSettings(next, settingsFile)
       current = next
-      if (typed !== '') credentials.replace(typed)
-      else if (password === null) credentials.clear()
+      if (current.passwordEnabled !== true) {
+        if (credentials.hasPassword() === true) credentials.clear()
+        generatedPassword = ''
+      } else if (typed !== '') {
+        credentials.replace(typed)
+        generatedPassword = ''
+      } else {
+        // Switched on without a typed password: give the page one to copy.
+        ensurePassword()
+      }
       if (moved) await restart()
       return snapshot()
     },

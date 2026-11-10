@@ -19,6 +19,7 @@ import {
   createCredentials,
   createGateway,
   forgetAuthority,
+  generatePassword,
   handleRpc,
   hashPassword,
   isLoopbackAddress,
@@ -33,6 +34,9 @@ import {
   verifySession,
   writeSettings,
 } from '../index.js'
+
+/** The shape one generated password has: four groups of four. */
+const GENERATED_PASSWORD = /^[a-hj-km-np-z2-9]{4}(-[a-hj-km-np-z2-9]{4}){3}$/
 
 const INTERFACES = {
   lo0: [{ address: '127.0.0.1', family: 'IPv4', internal: true }],
@@ -135,11 +139,24 @@ describe('credential store', () => {
 
   it('checks a configured password without storing it', () => {
     const path = join(root, 'configured.json')
-    const credentials = createCredentials({ path, generate: false })
+    const credentials = createCredentials({ path })
     credentials.replace('hunter2')
     assert.equal(credentials.verify('hunter2'), true)
     assert.equal(credentials.verify('hunter3'), false)
     assert.equal(hashPassword('hunter2', Buffer.alloc(16)).length, 32)
+  })
+})
+
+describe('generated password', () => {
+  it('is typeable on a phone: grouped, and without look-alike characters', () => {
+    const password = generatePassword()
+    assert.match(password, GENERATED_PASSWORD)
+    assert.equal(password.length, 19)
+    assert.equal(/[01ilo]/.test(password), false)
+  })
+
+  it('differs from one call to the next', () => {
+    assert.notEqual(generatePassword(), generatePassword())
   })
 })
 
@@ -258,24 +275,27 @@ describe('settings store', () => {
 
   it('falls back to the Plugin defaults on a first run', () => {
     const settings = readSettings({ bind: '10.0.0.4', port: 4000, sessionDays: 7 }, join(root, 'missing.json'))
-    assert.deepEqual(settings, { bind: '10.0.0.4', port: 4000, sessionDays: 7 })
+    assert.deepEqual(settings, { bind: '10.0.0.4', port: 4000, sessionDays: 7, passwordEnabled: true })
   })
 
-  it('round-trips what the page saved', () => {
+  it('round-trips what the page saved, switch included', () => {
     const path = join(root, 'settings.json')
-    writeSettings({ bind: '10.8.0.2', port: 3081, sessionDays: 12 }, path)
+    writeSettings({ bind: '10.8.0.2', port: 3081, sessionDays: 12, passwordEnabled: false }, path)
     assert.deepEqual(readSettings({ bind: '', port: 1, sessionDays: 1 }, path), {
       bind: '10.8.0.2',
       port: 3081,
       sessionDays: 12,
+      passwordEnabled: false,
     })
   })
 
-  it('rejects an address that is not IPv4 and a port out of range', () => {
-    assert.throws(() => normalizeSettings({ bind: 'example.com' }, { bind: '', port: 3081, sessionDays: 30 }), /IPv4/)
-    assert.throws(() => normalizeSettings({ port: 0 }, { bind: '', port: 3081, sessionDays: 30 }), /port/)
-    assert.throws(() => normalizeSettings({ port: 70000 }, { bind: '', port: 3081, sessionDays: 30 }), /port/)
-    assert.throws(() => normalizeSettings({ sessionDays: 0 }, { bind: '', port: 3081, sessionDays: 30 }), /sessionDays/)
+  it('rejects an address that is not IPv4, a port out of range and a switch that is not a boolean', () => {
+    const base = { bind: '', port: 3081, sessionDays: 30, passwordEnabled: true }
+    assert.throws(() => normalizeSettings({ bind: 'example.com' }, base), /IPv4/)
+    assert.throws(() => normalizeSettings({ port: 0 }, base), /port/)
+    assert.throws(() => normalizeSettings({ port: 70000 }, base), /port/)
+    assert.throws(() => normalizeSettings({ sessionDays: 0 }, base), /sessionDays/)
+    assert.throws(() => normalizeSettings({ passwordEnabled: 'off' }, base), /passwordEnabled/)
   })
 })
 
@@ -317,18 +337,95 @@ describe('controller', () => {
     assert.equal(state.effective.upstreamPort, 5555)
   })
 
+  it('starts a fresh store with a generated password the page can show', async () => {
+    const state = controller.snapshot()
+    assert.equal(state.settings.passwordEnabled, true)
+    assert.equal(state.passwordSet, true)
+    assert.match(state.generatedPassword, GENERATED_PASSWORD)
+    const login = await fetch(`http://127.0.0.1:${port}/__login`, {
+      method: 'POST',
+      headers: { 'content-type': 'application/x-www-form-urlencoded' },
+      body: `password=${encodeURIComponent(state.generatedPassword)}`,
+      redirect: 'manual',
+    })
+    assert.equal(login.status, 302)
+  })
+
   it('sets, keeps and drops the password through the same save', async () => {
     const base = { bind: '127.0.0.1', port, sessionDays: 30 }
     const set = await controller.save({ settings: base, password: 'replacement' })
     assert.equal(set.passwordSet, true)
+    assert.equal(set.generatedPassword, '')
     const kept = await controller.save({ settings: base, password: '' })
     assert.equal(kept.passwordSet, true)
     const dropped = await controller.save({ settings: base, password: null })
     assert.equal(dropped.passwordSet, false)
+    assert.equal(dropped.settings.passwordEnabled, false)
     await assert.rejects(
       () => controller.save({ settings: base, password: 'x' }),
       /at least 4 characters/,
     )
+  })
+
+  it('keeps the switch off across a restart instead of putting a password back', async () => {
+    const offPort = await freePort()
+    const ctx = { webServer: { port: 5555 }, connection: { authenticatedUrl: (base) => `${base}/?token=live-token` } }
+    const paths = { settings: join(root, 'off-settings.json'), secret: join(root, 'off-secret.json') }
+    const first = createController({
+      ctx,
+      defaults: { bind: '127.0.0.1', port: offPort, password: '', sessionDays: 30 },
+      paths,
+      log: { log: () => {}, warn: () => {} },
+    })
+    await first.start()
+    const off = await first.save({
+      settings: { bind: '127.0.0.1', port: offPort, sessionDays: 30, passwordEnabled: false },
+      password: null,
+    })
+    assert.equal(off.passwordSet, false)
+    assert.equal(off.generatedPassword, '')
+    const open = await fetch(`http://127.0.0.1:${offPort}/`, { redirect: 'manual' })
+    assert.equal(open.status, 302)
+    assert.equal(open.headers.get('location'), '/?token=live-token')
+    await first.stop()
+
+    const again = createController({
+      ctx,
+      defaults: { bind: '127.0.0.1', port: offPort, password: '', sessionDays: 30 },
+      paths,
+      log: { log: () => {}, warn: () => {} },
+    })
+    await again.start()
+    const state = again.snapshot()
+    assert.equal(state.settings.passwordEnabled, false)
+    assert.equal(state.passwordSet, false)
+    assert.equal(state.generatedPassword, '')
+    await again.stop()
+  })
+
+  it('generates a password when the switch is turned on with an empty field', async () => {
+    const onPort = await freePort()
+    const paths = { settings: join(root, 'on-settings.json'), secret: join(root, 'on-secret.json') }
+    const on = createController({
+      ctx: { webServer: { port: 5555 }, connection: { authenticatedUrl: (base) => `${base}/?token=t` } },
+      defaults: { bind: '127.0.0.1', port: onPort, password: '', sessionDays: 30 },
+      paths,
+      log: { log: () => {}, warn: () => {} },
+    })
+    const enabled = await on.save({
+      settings: { bind: '127.0.0.1', port: onPort, sessionDays: 30, passwordEnabled: true },
+      password: '',
+    })
+    assert.equal(enabled.settings.passwordEnabled, true)
+    assert.equal(enabled.passwordSet, true)
+    assert.match(enabled.generatedPassword, GENERATED_PASSWORD)
+    const typed = await on.save({
+      settings: { bind: '127.0.0.1', port: onPort, sessionDays: 30, passwordEnabled: true },
+      password: 'typed-again',
+    })
+    assert.equal(typed.generatedPassword, '')
+    assert.equal(typed.passwordSet, true)
+    await on.stop()
   })
 
   it('accepts the password the configuration names on a fresh store', async () => {
@@ -386,7 +483,7 @@ describe('controller', () => {
         webServer: { port: upstream.address().port },
         connection: { authenticatedUrl: (base) => `${base}/?token=live-token` },
       },
-      defaults: { bind: '127.0.0.1', port: livePort, password: '', sessionDays: 30 },
+      defaults: { bind: '127.0.0.1', port: livePort, password: '', passwordEnabled: false, sessionDays: 30 },
       paths: { settings: join(root, 'live-settings.json'), secret: join(root, 'live-secret.json') },
       log: { log: () => {}, warn: () => {} },
     })
@@ -407,7 +504,10 @@ describe('controller', () => {
     const login = await get('/open')
     const cookie = String(login.headers['set-cookie']).split(';')[0]
     await get('/warm', { cookie })
-    await live.save({ settings: { bind: '127.0.0.1', port: livePort, sessionDays: 30 }, password: 'typed-once' })
+    await live.save({
+      settings: { bind: '127.0.0.1', port: livePort, sessionDays: 30, passwordEnabled: true },
+      password: 'typed-once',
+    })
     const after = await get('/after', { cookie })
     assert.equal(after.body, 'upstream:/after')
     assert.equal(after.reused, true)

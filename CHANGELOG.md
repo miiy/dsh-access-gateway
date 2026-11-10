@@ -2,6 +2,18 @@
 
 Versions follow [SemVer](https://semver.org/).
 
+## 0.2.0
+
+### Added
+- First-run password: a fresh entry starts with a random password the Host generates, so the entry is never open by accident. The Access section shows it with a Copy button and the Host logs it; only the scrypt hash reaches the store, so a restart cannot show it again.
+- Switching the password back on with an empty field generates a new random one instead of refusing the save.
+- `passwordEnabled` in the settings store: the switch is saved with the rest of the settings, so turning the password off for a trusted network survives a Host restart instead of a fresh password appearing at the next start.
+- A generated password is grouped into four blocks of four characters from an alphabet without `0/o` and `1/l/i`, so it can be typed on a phone.
+
+### Changed
+- `password` in the configuration only seeds the first run, and an empty value now means "generate one" rather than "leave the entry open".
+- The Access section's switch reads `passwordEnabled` instead of inferring the state from a stored hash; a switch-off still drops the stored hash.
+
 ## 0.1.0
 
 ### Added

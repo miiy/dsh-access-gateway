@@ -1,7 +1,7 @@
 {
   "name": "dsh-access-gateway",
-  "version": "0.1.0",
-  "description": "Access the DSH Web GUI from your LAN: a password-gated TCP listener that forwards the browser to the loopback GUI with this process's launch token.",
+  "version": "0.2.0",
+  "description": "Access the DSH Web GUI from your LAN: a password-gated TCP listener that forwards the browser to the loopback GUI with this process's launch token. The password starts as a generated random one and can be switched off on a trusted network.",
   "icon": "./icon.svg",
   "type": "module",
   "license": "MIT",
